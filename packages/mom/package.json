@@ -13,8 +13,8 @@
 		"CHANGELOG.md"
 	],
 	"scripts": {
-		"clean": "rm -rf dist",
-		"build": "tsgo -p tsconfig.build.json && chmod +x dist/main.js",
+		"clean": "shx rm -rf dist",
+		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/main.js",
 		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
@@ -33,6 +33,7 @@
 	"devDependencies": {
 		"@types/diff": "^7.0.2",
 		"@types/node": "^24.3.0",
+		"shx": "^0.4.0",
 		"typescript": "^5.7.3"
 	},
 	"keywords": [
