@@ -18,9 +18,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
+import { spawnPi } from "./pi-command.ts";
 import { applyExtensionDefaults } from "./themeMap.ts";
 
 // ── Types ────────────────────────────────────────
@@ -281,7 +281,6 @@ export default function (pi: ExtensionAPI) {
 			"--mode", "json",
 			"-p",
 			"--no-session",
-			"--no-extensions",
 			"--model", model,
 			"--tools", state.def.tools,
 			"--thinking", "off",
@@ -290,9 +289,10 @@ export default function (pi: ExtensionAPI) {
 		];
 
 		const textChunks: string[] = [];
+		const stderrChunks: string[] = [];
 
 		return new Promise((resolve) => {
-			const proc = spawn("pi", args, {
+			const proc = spawnPi(ctx.cwd, args, {
 				stdio: ["ignore", "pipe", "pipe"],
 				env: { ...process.env },
 			});
@@ -323,7 +323,9 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => {
+				if (chunk.trim()) stderrChunks.push(chunk);
+			});
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -340,7 +342,10 @@ export default function (pi: ExtensionAPI) {
 				state.elapsed = Date.now() - startTime;
 				state.status = code === 0 ? "done" : "error";
 
-				const full = textChunks.join("");
+				let full = textChunks.join("");
+				if (!full.trim() && stderrChunks.length > 0) {
+					full = stderrChunks.join("").trim();
+				}
 				state.lastLine = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 				updateWidget();
 
@@ -610,9 +615,14 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 			render(width: number): string[] {
 				const model = _ctx.model?.id || "no-model";
 				const usage = _ctx.getContextUsage();
-				const pct = usage ? usage.percent : 0;
-				const filled = Math.round(pct / 10);
-				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
+				const percent = usage?.percent;
+				const hasPercent = typeof percent === "number";
+				const pct = hasPercent ? Math.max(0, percent) : 0;
+				const filled = hasPercent
+					? Math.min(10, pct <= 0 ? 0 : Math.max(1, Math.round(pct / 10)))
+					: 0;
+				const bar = hasPercent ? "#".repeat(filled) + "-".repeat(10 - filled) : "??????????";
+				const pctLabel = hasPercent ? `${pct.toFixed(1)}%` : "?";
 
 				const active = Array.from(experts.values()).filter(e => e.status === "researching").length;
 				const done = Array.from(experts.values()).filter(e => e.status === "done").length;
@@ -625,7 +635,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 					: done > 0
 					? theme.fg("success", ` ✓ ${done} done`)
 					: "";
-				const right = theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
+				const right = theme.fg("dim", `[${bar}] ${pctLabel} `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(mid) - visibleWidth(right)));
 
 				return [truncateToWidth(left + mid + pad + right, width)];

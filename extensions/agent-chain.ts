@@ -24,9 +24,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { spawn } from "child_process";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
+import { spawnPi } from "./pi-command.ts";
 import { applyExtensionDefaults } from "./themeMap.ts";
 
 // ── Types ────────────────────────────────────────
@@ -347,7 +347,6 @@ export default function (pi: ExtensionAPI) {
 		const args = [
 			"--mode", "json",
 			"-p",
-			"--no-extensions",
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--thinking", "off",
@@ -362,11 +361,12 @@ export default function (pi: ExtensionAPI) {
 		args.push(task);
 
 		const textChunks: string[] = [];
+		const stderrChunks: string[] = [];
 		const startTime = Date.now();
 		const state = stepStates[stepIndex];
 
 		return new Promise((resolve) => {
-			const proc = spawn("pi", args, {
+			const proc = spawnPi(ctx.cwd, args, {
 				stdio: ["ignore", "pipe", "pipe"],
 				env: { ...process.env },
 			});
@@ -402,7 +402,9 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => {
+				if (chunk.trim()) stderrChunks.push(chunk);
+			});
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -418,7 +420,10 @@ export default function (pi: ExtensionAPI) {
 				clearInterval(timer);
 				const elapsed = Date.now() - startTime;
 				state.elapsed = elapsed;
-				const output = textChunks.join("");
+				let output = textChunks.join("");
+				if (!output.trim() && stderrChunks.length > 0) {
+					output = stderrChunks.join("").trim();
+				}
 				state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
 
 				if (code === 0) {
@@ -778,9 +783,14 @@ ${agentCatalog}
 			render(width: number): string[] {
 				const model = _ctx.model?.id || "no-model";
 				const usage = _ctx.getContextUsage();
-				const pct = usage ? usage.percent : 0;
-				const filled = Math.round(pct / 10);
-				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
+				const percent = usage?.percent;
+				const hasPercent = typeof percent === "number";
+				const pct = hasPercent ? Math.max(0, percent) : 0;
+				const filled = hasPercent
+					? Math.min(10, pct <= 0 ? 0 : Math.max(1, Math.round(pct / 10)))
+					: 0;
+				const bar = hasPercent ? "#".repeat(filled) + "-".repeat(10 - filled) : "??????????";
+				const pctLabel = hasPercent ? `${pct.toFixed(1)}%` : "?";
 
 				const chainLabel = activeChain
 					? theme.fg("accent", activeChain.name)
@@ -789,7 +799,7 @@ ${agentCatalog}
 				const left = theme.fg("dim", ` ${model}`) +
 					theme.fg("muted", " · ") +
 					chainLabel;
-				const right = theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
+				const right = theme.fg("dim", `[${bar}] ${pctLabel} `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
 
 				return [truncateToWidth(left + pad + right, width)];

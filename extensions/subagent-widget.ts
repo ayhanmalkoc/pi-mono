@@ -16,10 +16,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
 import { Container, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-const { spawn } = require("child_process") as any;
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { spawnPi } from "./pi-command.ts";
 import { applyExtensionDefaults } from "./themeMap.ts";
 
 interface SubState {
@@ -139,11 +139,10 @@ export default function (pi: ExtensionAPI) {
 			: "openrouter/google/gemini-3-flash-preview";
 
 		return new Promise<void>((resolve) => {
-			const proc = spawn("pi", [
+			const proc = spawnPi(ctx.cwd, [
 				"--mode", "json",
 				"-p",
 				"--session", state.sessionFile,   // persistent session for /subcont resumption
-				"--no-extensions",
 				"--model", model,
 				"--tools", "read,bash,grep,find,ls",
 				"--thinking", "off",

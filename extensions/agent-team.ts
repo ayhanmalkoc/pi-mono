@@ -20,9 +20,9 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
+import { spawnPi } from "./pi-command.ts";
 import { applyExtensionDefaults } from "./themeMap.ts";
 
 // ── Types ────────────────────────────────────────
@@ -106,6 +106,29 @@ function parseAgentFile(filePath: string): AgentDef | null {
 	}
 }
 
+function collectMarkdownFiles(dir: string): string[] {
+	const files: string[] = [];
+	const stack = [dir];
+
+	while (stack.length > 0) {
+		const current = stack.pop();
+		if (!current) continue;
+
+		try {
+			for (const entry of readdirSync(current, { withFileTypes: true })) {
+				const fullPath = join(current, entry.name);
+				if (entry.isDirectory()) {
+					stack.push(fullPath);
+				} else if (entry.isFile() && entry.name.endsWith(".md")) {
+					files.push(resolve(fullPath));
+				}
+			}
+		} catch {}
+	}
+
+	return files;
+}
+
 function scanAgentDirs(cwd: string): AgentDef[] {
 	const dirs = [
 		join(cwd, "agents"),
@@ -119,9 +142,7 @@ function scanAgentDirs(cwd: string): AgentDef[] {
 	for (const dir of dirs) {
 		if (!existsSync(dir)) continue;
 		try {
-			for (const file of readdirSync(dir)) {
-				if (!file.endsWith(".md")) continue;
-				const fullPath = resolve(dir, file);
+			for (const fullPath of collectMarkdownFiles(dir)) {
 				const def = parseAgentFile(fullPath);
 				if (def && !seen.has(def.name.toLowerCase())) {
 					seen.add(def.name.toLowerCase());
@@ -349,7 +370,6 @@ export default function (pi: ExtensionAPI) {
 		const args = [
 			"--mode", "json",
 			"-p",
-			"--no-extensions",
 			"--model", model,
 			"--tools", state.def.tools,
 			"--thinking", "off",
@@ -365,9 +385,10 @@ export default function (pi: ExtensionAPI) {
 		args.push(task);
 
 		const textChunks: string[] = [];
+		const stderrChunks: string[] = [];
 
 		return new Promise((resolve) => {
-			const proc = spawn("pi", args, {
+			const proc = spawnPi(ctx.cwd, args, {
 				stdio: ["ignore", "pipe", "pipe"],
 				env: { ...process.env },
 			});
@@ -414,7 +435,9 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => {
+				if (chunk.trim()) stderrChunks.push(chunk);
+			});
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -436,7 +459,10 @@ export default function (pi: ExtensionAPI) {
 					state.sessionFile = agentSessionFile;
 				}
 
-				const full = textChunks.join("");
+				let full = textChunks.join("");
+				if (!full.trim() && stderrChunks.length > 0) {
+					full = stderrChunks.join("").trim();
+				}
 				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 				updateWidget();
 
@@ -719,14 +745,19 @@ ${agentCatalog}`,
 			render(width: number): string[] {
 				const model = _ctx.model?.id || "no-model";
 				const usage = _ctx.getContextUsage();
-				const pct = usage ? usage.percent : 0;
-				const filled = Math.round(pct / 10);
-				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
+				const percent = usage?.percent;
+				const hasPercent = typeof percent === "number";
+				const pct = hasPercent ? Math.max(0, percent) : 0;
+				const filled = hasPercent
+					? Math.min(10, pct <= 0 ? 0 : Math.max(1, Math.round(pct / 10)))
+					: 0;
+				const bar = hasPercent ? "#".repeat(filled) + "-".repeat(10 - filled) : "??????????";
+				const pctLabel = hasPercent ? `${pct.toFixed(1)}%` : "?";
 
 				const left = theme.fg("dim", ` ${model}`) +
 					theme.fg("muted", " · ") +
 					theme.fg("accent", activeTeamName);
-				const right = theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
+				const right = theme.fg("dim", `[${bar}] ${pctLabel} `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
 
 				return [truncateToWidth(left + pad + right, width)];
