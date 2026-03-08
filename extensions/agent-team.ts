@@ -106,6 +106,20 @@ function parseAgentFile(filePath: string): AgentDef | null {
 	}
 }
 
+function statusText(status: AgentState["status"]): string {
+	switch (status) {
+		case "idle":
+			return "boşta";
+		case "running":
+			return "çalışıyor";
+		case "done":
+			return "tamam";
+		case "error":
+			return "hata";
+	}
+	return "bilinmiyor";
+}
+
 function collectMarkdownFiles(dir: string): string[] {
 	const files: string[] = [];
 	const stack = [dir];
@@ -241,7 +255,7 @@ export default function (pi: ExtensionAPI) {
 		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
 		const nameVisible = Math.min(name.length, w);
 
-		const statusStr = `${statusIcon} ${state.status}`;
+		const statusStr = `${statusIcon} ${statusText(state.status)}`;
 		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
 		const statusLine = theme.fg(statusColor, statusStr + timeStr);
 		const statusVisible = statusStr.length + timeStr.length;
@@ -284,7 +298,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				render(width: number): string[] {
 					if (agentStates.size === 0) {
-						text.setText(theme.fg("dim", "No agents found. Add .md files to agents/"));
+						text.setText(theme.fg("dim", "Ajan bulunamadı. `agents/` içine `.md` dosyaları ekleyin."));
 						return text.render(width);
 					}
 
@@ -330,7 +344,7 @@ export default function (pi: ExtensionAPI) {
 		const state = agentStates.get(key);
 		if (!state) {
 			return Promise.resolve({
-				output: `Agent "${agentName}" not found. Available: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
+				output: `Ajan "${agentName}" bulunamadı. Kullanılabilir: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
 				exitCode: 1,
 				elapsed: 0,
 			});
@@ -338,7 +352,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (state.status === "running") {
 			return Promise.resolve({
-				output: `Agent "${displayName(state.def.name)}" is already running. Wait for it to finish.`,
+				output: `Ajan "${displayName(state.def.name)}" zaten çalışıyor. Bitmesini bekleyin.`,
 				exitCode: 1,
 				elapsed: 0,
 			});
@@ -467,7 +481,7 @@ export default function (pi: ExtensionAPI) {
 				updateWidget();
 
 				ctx.ui.notify(
-					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+					`${displayName(state.def.name)} ${statusText(state.status)} (${Math.round(state.elapsed / 1000)}sn)`,
 					state.status === "done" ? "success" : "error"
 				);
 
@@ -481,10 +495,10 @@ export default function (pi: ExtensionAPI) {
 			proc.on("error", (err) => {
 				clearInterval(state.timer);
 				state.status = "error";
-				state.lastWork = `Error: ${err.message}`;
+				state.lastWork = `Hata: ${err.message}`;
 				updateWidget();
 				resolve({
-					output: `Error spawning agent: ${err.message}`,
+					output: `Ajan başlatılırken hata: ${err.message}`,
 					exitCode: 1,
 					elapsed: Date.now() - startTime,
 				});
@@ -496,11 +510,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "dispatch_agent",
-		label: "Dispatch Agent",
-		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names.",
+		label: "Ajan Görevlendir",
+		description: "Bir uzman ajana görev gönderir. Ajan görevi çalıştırır ve sonucu döndürür. Kullanılabilir ajan adları için sistem promptunu inceleyin.",
 		parameters: Type.Object({
-			agent: Type.String({ description: "Agent name (case-insensitive)" }),
-			task: Type.String({ description: "Task description for the agent to execute" }),
+			agent: Type.String({ description: "Ajan adı (büyük/küçük harf duyarsız)" }),
+			task: Type.String({ description: "Ajanın çalıştıracağı görev açıklaması" }),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -509,7 +523,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (onUpdate) {
 					onUpdate({
-						content: [{ type: "text", text: `Dispatching to ${agent}...` }],
+						content: [{ type: "text", text: `${agent} ajanına görev gönderiliyor...` }],
 						details: { agent, task, status: "dispatching" },
 					});
 				}
@@ -517,11 +531,12 @@ export default function (pi: ExtensionAPI) {
 				const result = await dispatchAgent(agent, task, ctx);
 
 				const truncated = result.output.length > 8000
-					? result.output.slice(0, 8000) + "\n\n... [truncated]"
+					? result.output.slice(0, 8000) + "\n\n... [kısaltıldı]"
 					: result.output;
 
 				const status = result.exitCode === 0 ? "done" : "error";
-				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
+				const statusLabel = status === "done" ? "tamam" : "hata";
+				const summary = `[${agent}] ${statusLabel} (${Math.round(result.elapsed / 1000)}sn)`;
 
 				return {
 					content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
@@ -536,7 +551,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			} catch (err: any) {
 				return {
-					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
+					content: [{ type: "text", text: `${agent} ajanına görev gönderilirken hata: ${err?.message || err}` }],
 					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "" },
 				};
 			}
@@ -566,7 +581,7 @@ export default function (pi: ExtensionAPI) {
 			if (options.isPartial || details.status === "dispatching") {
 				return new Text(
 					theme.fg("accent", `● ${details.agent || "?"}`) +
-					theme.fg("dim", " working..."),
+					theme.fg("dim", " çalışıyor..."),
 					0, 0,
 				);
 			}
@@ -579,7 +594,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (options.expanded && details.fullOutput) {
 				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
+					? details.fullOutput.slice(0, 4000) + "\n... [kısaltıldı]"
 					: details.fullOutput;
 				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
 			}
@@ -591,12 +606,12 @@ export default function (pi: ExtensionAPI) {
 	// ── Commands ─────────────────────────────────
 
 	pi.registerCommand("agents-team", {
-		description: "Select a team to work with",
+		description: "Çalışılacak takımı seç",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
 			if (teamNames.length === 0) {
-				ctx.ui.notify("No teams defined in .pi/agents/teams.yaml", "warning");
+				ctx.ui.notify(".pi/agents/teams.yaml içinde takım tanımı yok", "warning");
 				return;
 			}
 
@@ -605,38 +620,38 @@ export default function (pi: ExtensionAPI) {
 				return `${name} — ${members.join(", ")}`;
 			});
 
-			const choice = await ctx.ui.select("Select Team", options);
+			const choice = await ctx.ui.select("Takım Seç", options);
 			if (choice === undefined) return;
 
 			const idx = options.indexOf(choice);
 			const name = teamNames[idx];
 			activateTeam(name);
 			updateWidget();
-			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
+			ctx.ui.setStatus("agent-team", `Takım: ${name} (${agentStates.size})`);
+			ctx.ui.notify(`Takım: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
 		},
 	});
 
 	pi.registerCommand("agents-list", {
-		description: "List all loaded agents",
+		description: "Yüklü ajanları listele",
 		handler: async (_args, _ctx) => {
 			widgetCtx = _ctx;
 			const names = Array.from(agentStates.values())
 				.map(s => {
-					const session = s.sessionFile ? "resumed" : "new";
-					return `${displayName(s.def.name)} (${s.status}, ${session}, runs: ${s.runCount}): ${s.def.description}`;
+					const session = s.sessionFile ? "devam" : "yeni";
+				return `${displayName(s.def.name)} (${statusText(s.status)}, ${session}, çalışma: ${s.runCount}): ${s.def.description}`;
 				})
 				.join("\n");
-			_ctx.ui.notify(names || "No agents loaded", "info");
+			_ctx.ui.notify(names || "Yüklü ajan yok", "info");
 		},
 	});
 
 	pi.registerCommand("agents-grid", {
-		description: "Set grid columns: /agents-grid <1-6>",
+		description: "Grid sütun sayısı: /agents-grid <1-6>",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			const items = ["1", "2", "3", "4", "5", "6"].map(n => ({
 				value: n,
-				label: `${n} columns`,
+				label: `${n} sütun`,
 			}));
 			const filtered = items.filter(i => i.value.startsWith(prefix));
 			return filtered.length > 0 ? filtered : items;
@@ -646,10 +661,10 @@ export default function (pi: ExtensionAPI) {
 			const n = parseInt(args?.trim() || "", 10);
 			if (n >= 1 && n <= 6) {
 				gridCols = n;
-				_ctx.ui.notify(`Grid set to ${gridCols} columns`, "info");
+				_ctx.ui.notify(`Grid ${gridCols} sütun olarak ayarlandı`, "info");
 				updateWidget();
 			} else {
-				_ctx.ui.notify("Usage: /agents-grid <1-6>", "error");
+				_ctx.ui.notify("Kullanım: /agents-grid <1-6>", "error");
 			}
 		},
 	});
@@ -659,36 +674,35 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		// Build dynamic agent catalog from active team only
 		const agentCatalog = Array.from(agentStates.values())
-			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
+			.map(s => `### ${displayName(s.def.name)}\n**Görevlendirme adı:** \`${s.def.name}\`\n${s.def.description}\n**Araçlar:** ${s.def.tools}`)
 			.join("\n\n");
 
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
 		return {
-			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
-You do NOT have direct access to the codebase. You MUST delegate all work through
-agents using the dispatch_agent tool.
+			systemPrompt: `Sen bir yönlendirici ajansın. Uzman ajanları koordine ederek görevleri tamamlatırsın.
+Kod tabanına doğrudan erişimin YOK. Tüm işi dispatch_agent aracıyla ajanlara devretmelisin.
 
-## Active Team: ${activeTeamName}
-Members: ${teamMembers}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents outside this team.
+## Aktif Takım: ${activeTeamName}
+Üyeler: ${teamMembers}
+Sadece aşağıda listelenen ajanlara görev gönderebilirsin. Bu takım dışındaki ajanlara görev gönderme.
 
-## How to Work
-- Analyze the user's request and break it into clear sub-tasks
-- Choose the right agent(s) for each sub-task
-- Dispatch tasks using the dispatch_agent tool
-- Review results and dispatch follow-up agents if needed
-- If a task fails, try a different agent or adjust the task description
-- Summarize the outcome for the user
+## Çalışma Şekli
+- Kullanıcı isteğini analiz et ve net alt görevlere böl
+- Her alt görev için doğru ajan(lar)ı seç
+- dispatch_agent aracıyla görevleri gönder
+- Sonuçları değerlendir, gerekirse takip görevleri gönder
+- Bir görev başarısız olursa farklı ajan dene veya görev tanımını düzelt
+- Sonucu kullanıcıya özetle
 
-## Rules
-- NEVER try to read, write, or execute code directly — you have no such tools
-- ALWAYS use dispatch_agent to get work done
-- You can chain agents: use scout to explore, then builder to implement
-- You can dispatch the same agent multiple times with different tasks
-- Keep tasks focused — one clear objective per dispatch
+## Kurallar
+- Kod okumaya, yazmaya veya komut çalıştırmaya doğrudan çalışma; bu araçların yok
+- İşi tamamlamak için her zaman dispatch_agent kullan
+- Ajanları zincirleyebilirsin: önce scout keşif yapar, sonra builder uygular
+- Aynı ajana farklı görevlerle birden fazla kez görev gönderebilirsin
+- Görevleri odaklı tut: her gönderimde tek net hedef
 
-## Agents
+## Ajanlar
 
 ${agentCatalog}`,
 		};
@@ -726,14 +740,14 @@ ${agentCatalog}`,
 		// Lock down to dispatcher-only (tool already registered at top level)
 		pi.setActiveTools(["dispatch_agent"]);
 
-		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
+		_ctx.ui.setStatus("agent-team", `Takım: ${activeTeamName} (${agentStates.size})`);
 		const members = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 		_ctx.ui.notify(
-			`Team: ${activeTeamName} (${members})\n` +
-			`Team sets loaded from: .pi/agents/teams.yaml\n\n` +
-			`/agents-team          Select a team\n` +
-			`/agents-list          List active agents and status\n` +
-			`/agents-grid <1-6>    Set grid column count`,
+			`Takım: ${activeTeamName} (${members})\n` +
+			`Takım setleri buradan yüklendi: .pi/agents/teams.yaml\n\n` +
+			`/agents-team          Takım seç\n` +
+			`/agents-list          Aktif ajanları ve durumlarını listele\n` +
+			`/agents-grid <1-6>    Grid sütun sayısını ayarla`,
 			"info",
 		);
 		updateWidget();

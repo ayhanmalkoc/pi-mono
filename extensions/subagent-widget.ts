@@ -34,6 +34,18 @@ interface SubState {
 	proc?: any;            // active ChildProcess ref (for kill on /subrm)
 }
 
+function subStatusText(status: SubState["status"]): string {
+	switch (status) {
+		case "running":
+			return "çalışıyor";
+		case "done":
+			return "tamam";
+		case "error":
+			return "hata";
+	}
+	return "bilinmiyor";
+}
+
 export default function (pi: ExtensionAPI) {
 	const agents: Map<number, SubState> = new Map();
 	let nextId = 1;
@@ -77,15 +89,15 @@ export default function (pi: ExtensionAPI) {
 							: state.task;
 
 						const turnLabel = state.turnCount > 1
-							? theme.fg("dim", ` · Turn ${state.turnCount}`)
+							? theme.fg("dim", ` · Tur ${state.turnCount}`)
 							: "";
 
 						lines.push(
-							theme.fg(statusColor, `${statusIcon} Subagent #${state.id}`) +
+							theme.fg(statusColor, `${statusIcon} Alt Ajan #${state.id}`) +
 							turnLabel +
 							theme.fg("dim", `  ${taskPreview}`) +
 							theme.fg("dim", `  (${Math.round(state.elapsed / 1000)}s)`) +
-							theme.fg("dim", ` | Tools: ${state.toolCount}`)
+							theme.fg("dim", ` | Araç: ${state.toolCount}`)
 						);
 
 						const fullText = state.textChunks.join("");
@@ -188,13 +200,13 @@ export default function (pi: ExtensionAPI) {
 
 				const result = state.textChunks.join("");
 				ctx.ui.notify(
-					`Subagent #${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+					`Alt Ajan #${state.id} ${subStatusText(state.status)} (${Math.round(state.elapsed / 1000)}sn)`,
 					state.status === "done" ? "success" : "error"
 				);
 
 				pi.sendMessage({
 					customType: "subagent-result",
-					content: `Subagent #${state.id}${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}`,
+					content: `Alt Ajan #${state.id}${state.turnCount > 1 ? ` (Tur ${state.turnCount})` : ""} "${prompt}" görevini ${Math.round(state.elapsed / 1000)}sn içinde tamamladı.\n\nSonuç:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [kısaltıldı]" : ""}`,
 					display: true,
 				}, { deliverAs: "followUp", triggerTurn: true });
 
@@ -205,7 +217,7 @@ export default function (pi: ExtensionAPI) {
 				clearInterval(timer);
 				state.status = "error";
 				state.proc = undefined;
-				state.textChunks.push(`Error: ${err.message}`);
+				state.textChunks.push(`Hata: ${err.message}`);
 				updateWidgets();
 				resolve();
 			});
@@ -216,9 +228,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "subagent_create",
-		description: "Spawn a background subagent to perform a task. Returns the subagent ID immediately while it runs in the background. Results will be delivered as a follow-up message when finished.",
+		description: "Arkaplanda görev çalıştıran bir alt ajan başlatır. Alt ajan kimliğini hemen döndürür. İş bitince sonuç takip mesajı olarak gelir.",
 		parameters: Type.Object({
-			task: Type.String({ description: "The complete task description for the subagent to perform" }),
+			task: Type.String({ description: "Alt ajanın çalıştıracağı görevin tam açıklaması" }),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
@@ -240,26 +252,26 @@ export default function (pi: ExtensionAPI) {
 			spawnAgent(state, args.task, ctx);
 
 			return {
-				content: [{ type: "text", text: `Subagent #${id} spawned and running in background.` }],
+				content: [{ type: "text", text: `Alt Ajan #${id} başlatıldı ve arkaplanda çalışıyor.` }],
 			};
 		},
 	});
 
 	pi.registerTool({
 		name: "subagent_continue",
-		description: "Continue an existing subagent's conversation. Use this to give further instructions to a finished subagent. Returns immediately while it runs in the background.",
+		description: "Mevcut bir alt ajanın konuşmasını devam ettirir. Tamamlanmış alt ajana yeni talimat vermek için kullanılır. Arkaplanda hemen başlar.",
 		parameters: Type.Object({
-			id: Type.Number({ description: "The ID of the subagent to continue" }),
-			prompt: Type.String({ description: "The follow-up prompt or new instructions" }),
+			id: Type.Number({ description: "Devam ettirilecek alt ajanın kimliği" }),
+			prompt: Type.String({ description: "Takip promptu veya yeni talimatlar" }),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
 			const state = agents.get(args.id);
 			if (!state) {
-				return { content: [{ type: "text", text: `Error: No subagent #${args.id} found.` }] };
+				return { content: [{ type: "text", text: `Hata: Alt Ajan #${args.id} bulunamadı.` }] };
 			}
 			if (state.status === "running") {
-				return { content: [{ type: "text", text: `Error: Subagent #${args.id} is still running.` }] };
+				return { content: [{ type: "text", text: `Hata: Alt Ajan #${args.id} hâlâ çalışıyor.` }] };
 			}
 
 			state.status = "running";
@@ -269,26 +281,26 @@ export default function (pi: ExtensionAPI) {
 			state.turnCount++;
 			updateWidgets();
 
-			ctx.ui.notify(`Continuing Subagent #${args.id} (Turn ${state.turnCount})…`, "info");
+			ctx.ui.notify(`Alt Ajan #${args.id} devam ediyor (Tur ${state.turnCount})...`, "info");
 			spawnAgent(state, args.prompt, ctx);
 
 			return {
-				content: [{ type: "text", text: `Subagent #${args.id} continuing conversation in background.` }],
+				content: [{ type: "text", text: `Alt Ajan #${args.id} konuşmayı arkaplanda sürdürüyor.` }],
 			};
 		},
 	});
 
 	pi.registerTool({
 		name: "subagent_remove",
-		description: "Remove a specific subagent. Kills it if it's currently running.",
+		description: "Belirli bir alt ajanı kaldırır. Çalışıyorsa sonlandırır.",
 		parameters: Type.Object({
-			id: Type.Number({ description: "The ID of the subagent to remove" }),
+			id: Type.Number({ description: "Kaldırılacak alt ajanın kimliği" }),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
 			const state = agents.get(args.id);
 			if (!state) {
-				return { content: [{ type: "text", text: `Error: No subagent #${args.id} found.` }] };
+				return { content: [{ type: "text", text: `Hata: Alt Ajan #${args.id} bulunamadı.` }] };
 			}
 
 			if (state.proc && state.status === "running") {
@@ -298,26 +310,26 @@ export default function (pi: ExtensionAPI) {
 			agents.delete(args.id);
 
 			return {
-				content: [{ type: "text", text: `Subagent #${args.id} removed successfully.` }],
+				content: [{ type: "text", text: `Alt Ajan #${args.id} kaldırıldı.` }],
 			};
 		},
 	});
 
 	pi.registerTool({
 		name: "subagent_list",
-		description: "List all active and finished subagents, showing their IDs, tasks, and status.",
+		description: "Aktif ve tamamlanmış tüm alt ajanları kimlik, görev ve durumlarıyla listeler.",
 		parameters: Type.Object({}),
 		execute: async () => {
 			if (agents.size === 0) {
-				return { content: [{ type: "text", text: "No active subagents." }] };
+				return { content: [{ type: "text", text: "Aktif alt ajan yok." }] };
 			}
 
 			const list = Array.from(agents.values()).map(s => 
-				`#${s.id} [${s.status.toUpperCase()}] (Turn ${s.turnCount}) - ${s.task}`
+				`#${s.id} [${subStatusText(s.status).toUpperCase()}] (Tur ${s.turnCount}) - ${s.task}`
 			).join("\n");
 
 			return {
-				content: [{ type: "text", text: `Subagents:\n${list}` }],
+				content: [{ type: "text", text: `Alt Ajanlar:\n${list}` }],
 			};
 		},
 	});
@@ -327,13 +339,13 @@ export default function (pi: ExtensionAPI) {
 	// ── /sub <task> ───────────────────────────────────────────────────────────
 
 	pi.registerCommand("sub", {
-		description: "Spawn a subagent with live widget: /sub <task>",
+		description: "Canlı widget ile alt ajan başlat: /sub <task>",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 
 			const task = args?.trim();
 			if (!task) {
-				ctx.ui.notify("Usage: /sub <task>", "error");
+				ctx.ui.notify("Kullanım: /sub <task>", "error");
 				return;
 			}
 
@@ -359,14 +371,14 @@ export default function (pi: ExtensionAPI) {
 	// ── /subcont <number> <prompt> ────────────────────────────────────────────
 
 	pi.registerCommand("subcont", {
-		description: "Continue an existing subagent's conversation: /subcont <number> <prompt>",
+		description: "Mevcut alt ajan konuşmasını sürdür: /subcont <number> <prompt>",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 
 			const trimmed = args?.trim() ?? "";
 			const spaceIdx = trimmed.indexOf(" ");
 			if (spaceIdx === -1) {
-				ctx.ui.notify("Usage: /subcont <number> <prompt>", "error");
+				ctx.ui.notify("Kullanım: /subcont <number> <prompt>", "error");
 				return;
 			}
 
@@ -374,18 +386,18 @@ export default function (pi: ExtensionAPI) {
 			const prompt = trimmed.slice(spaceIdx + 1).trim();
 
 			if (isNaN(num) || !prompt) {
-				ctx.ui.notify("Usage: /subcont <number> <prompt>", "error");
+				ctx.ui.notify("Kullanım: /subcont <number> <prompt>", "error");
 				return;
 			}
 
 			const state = agents.get(num);
 			if (!state) {
-				ctx.ui.notify(`No subagent #${num} found. Use /sub to create one.`, "error");
+				ctx.ui.notify(`Alt Ajan #${num} bulunamadı. Oluşturmak için /sub kullanın.`, "error");
 				return;
 			}
 
 			if (state.status === "running") {
-				ctx.ui.notify(`Subagent #${num} is still running — wait for it to finish first.`, "warning");
+				ctx.ui.notify(`Alt Ajan #${num} hâlâ çalışıyor. Önce bitmesini bekleyin.`, "warning");
 				return;
 			}
 
@@ -397,7 +409,7 @@ export default function (pi: ExtensionAPI) {
 			state.turnCount++;
 			updateWidgets();
 
-			ctx.ui.notify(`Continuing Subagent #${num} (Turn ${state.turnCount})…`, "info");
+			ctx.ui.notify(`Alt Ajan #${num} devam ediyor (Tur ${state.turnCount})...`, "info");
 
 			// Fire-and-forget — reuses the same sessionFile for conversation history
 			spawnAgent(state, prompt, ctx);
@@ -407,28 +419,28 @@ export default function (pi: ExtensionAPI) {
 	// ── /subrm <number> ───────────────────────────────────────────────────────
 
 	pi.registerCommand("subrm", {
-		description: "Remove a specific subagent widget: /subrm <number>",
+		description: "Belirli alt ajan widget'ını kaldır: /subrm <number>",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 
 			const num = parseInt(args?.trim() ?? "", 10);
 			if (isNaN(num)) {
-				ctx.ui.notify("Usage: /subrm <number>", "error");
+				ctx.ui.notify("Kullanım: /subrm <number>", "error");
 				return;
 			}
 
 			const state = agents.get(num);
 			if (!state) {
-				ctx.ui.notify(`No subagent #${num} found.`, "error");
+				ctx.ui.notify(`Alt Ajan #${num} bulunamadı.`, "error");
 				return;
 			}
 
 			// Kill the process if still running
 			if (state.proc && state.status === "running") {
 				state.proc.kill("SIGTERM");
-				ctx.ui.notify(`Subagent #${num} killed and removed.`, "warning");
+				ctx.ui.notify(`Alt Ajan #${num} sonlandırıldı ve kaldırıldı.`, "warning");
 			} else {
-				ctx.ui.notify(`Subagent #${num} removed.`, "info");
+				ctx.ui.notify(`Alt Ajan #${num} kaldırıldı.`, "info");
 			}
 
 			ctx.ui.setWidget(`sub-${num}`, undefined);
@@ -439,7 +451,7 @@ export default function (pi: ExtensionAPI) {
 	// ── /subclear ─────────────────────────────────────────────────────────────
 
 	pi.registerCommand("subclear", {
-		description: "Clear all subagent widgets",
+		description: "Tüm alt ajan widget'larını temizle",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 
@@ -457,8 +469,8 @@ export default function (pi: ExtensionAPI) {
 			nextId = 1;
 
 			const msg = total === 0
-				? "No subagents to clear."
-				: `Cleared ${total} subagent${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
+				? "Temizlenecek alt ajan yok."
+				: `${total} alt ajan temizlendi${killed > 0 ? ` (${killed} sonlandırıldı)` : ""}.`;
 			ctx.ui.notify(msg, total === 0 ? "info" : "success");
 		},
 	});

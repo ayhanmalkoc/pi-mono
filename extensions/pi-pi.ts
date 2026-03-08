@@ -43,6 +43,20 @@ interface ExpertState {
 	timer?: ReturnType<typeof setInterval>;
 }
 
+function expertStatusText(status: ExpertState["status"]): string {
+	switch (status) {
+		case "idle":
+			return "boşta";
+		case "researching":
+			return "araştırıyor";
+		case "done":
+			return "tamam";
+		case "error":
+			return "hata";
+	}
+	return "bilinmiyor";
+}
+
 // ── Helpers ──────────────────────────────────────
 
 function displayName(name: string): string {
@@ -149,7 +163,7 @@ export default function (pi: ExtensionAPI) {
 		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
 		const nameVisible = Math.min(name.length, w);
 
-		const statusStr = `${statusIcon} ${state.status}`;
+		const statusStr = `${statusIcon} ${expertStatusText(state.status)}`;
 		const timeStr = state.status !== "idle" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
 		const queriesStr = state.queryCount > 0 ? ` (${state.queryCount})` : "";
 		const statusLine = theme.fg(statusColor, statusStr + timeStr + queriesStr);
@@ -203,7 +217,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				render(width: number): string[] {
 					if (experts.size === 0) {
-						return ["", theme.fg("dim", "  No experts found. Add agent .md files to .pi/agents/pi-pi/")];
+						return ["", theme.fg("dim", "  Uzman bulunamadı. .pi/agents/pi-pi/ içine ajan .md dosyaları ekleyin.")];
 					}
 
 					const cols = Math.min(gridCols, experts.size);
@@ -246,7 +260,7 @@ export default function (pi: ExtensionAPI) {
 		const state = experts.get(key);
 		if (!state) {
 			return Promise.resolve({
-				output: `Expert "${expertName}" not found. Available: ${Array.from(experts.values()).map(s => s.def.name).join(", ")}`,
+				output: `Uzman "${expertName}" bulunamadı. Kullanılabilir: ${Array.from(experts.values()).map(s => s.def.name).join(", ")}`,
 				exitCode: 1,
 				elapsed: 0,
 			});
@@ -254,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (state.status === "researching") {
 			return Promise.resolve({
-				output: `Expert "${displayName(state.def.name)}" is already researching. Wait for it to finish.`,
+				output: `Uzman "${displayName(state.def.name)}" zaten araştırıyor. Bitmesini bekleyin.`,
 				exitCode: 1,
 				elapsed: 0,
 			});
@@ -350,7 +364,7 @@ export default function (pi: ExtensionAPI) {
 				updateWidget();
 
 				ctx.ui.notify(
-					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+					`${displayName(state.def.name)} ${expertStatusText(state.status)} (${Math.round(state.elapsed / 1000)}sn)`,
 					state.status === "done" ? "success" : "error"
 				);
 
@@ -364,10 +378,10 @@ export default function (pi: ExtensionAPI) {
 			proc.on("error", (err) => {
 				clearInterval(state.timer);
 				state.status = "error";
-				state.lastLine = `Error: ${err.message}`;
+				state.lastLine = `Hata: ${err.message}`;
 				updateWidget();
 				resolve({
-					output: `Error spawning expert: ${err.message}`,
+					output: `Uzman başlatılırken hata: ${err.message}`,
 					exitCode: 1,
 					elapsed: Date.now() - startTime,
 				});
@@ -379,34 +393,34 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "query_experts",
-		label: "Query Experts",
-		description: `Query one or more Pi domain experts IN PARALLEL. All experts run simultaneously as concurrent subprocesses.
+		label: "Uzmanları Sorgula",
+		description: `Bir veya daha fazla Pi uzmanını PARALEL olarak sorgular. Tüm uzmanlar eşzamanlı alt süreçlerde aynı anda çalışır.
 
-Pass an array of queries — each with an expert name and a specific question. All experts start at the same time and their results are returned together.
+Sorgu dizisi verin: her öğede uzman adı ve net bir soru olmalı. Uzmanlar aynı anda başlar ve sonuçlar birlikte döner.
 
-Available experts:
-- ext-expert: Extensions — tools, events, commands, rendering, state management
-- theme-expert: Themes — JSON format, 51 color tokens, vars, color values
-- skill-expert: Skills — SKILL.md multi-file packages, scripts, references, frontmatter
-- config-expert: Settings — settings.json, providers, models, packages, keybindings
-- tui-expert: TUI — components, keyboard input, overlays, widgets, footers, editors
-- prompt-expert: Prompt templates — single-file .md commands, arguments ($1, $@)
-- agent-expert: Agent definitions — .md personas, tools, teams.yaml, orchestration
-- keybinding-expert: Keyboard shortcuts — registerShortcut(), Key IDs, reserved keys, macOS terminal compatibility
+Kullanılabilir uzmanlar:
+- ext-expert: Eklentiler — araçlar, event'ler, komutlar, render, state yönetimi
+- theme-expert: Temalar — JSON biçimi, 51 renk token'ı, vars, renk değerleri
+- skill-expert: Skill'ler — SKILL.md, çok dosyalı paketler, scriptler, referanslar, frontmatter
+- config-expert: Ayarlar — settings.json, provider'lar, modeller, paketler, kısayollar
+- tui-expert: TUI — bileşenler, klavye girişi, overlay, widget, footer, editörler
+- prompt-expert: Prompt şablonları — tek dosyalı .md komutları, argümanlar ($1, $@)
+- agent-expert: Ajan tanımları — .md persona, araçlar, teams.yaml, orkestrasyon
+- keybinding-expert: Klavye kısayolları — registerShortcut(), Key ID'leri, ayrılmış tuşlar, macOS uyumluluğu
 
-Ask specific questions about what you need to BUILD. Each expert will return documentation excerpts, code patterns, and implementation guidance.`,
+İnşa edeceğiniz şeyle ilgili net sorular sorun. Her uzman dokümantasyon özeti, kod kalıpları ve uygulama önerisi döndürür.`,
 
 		parameters: Type.Object({
 			queries: Type.Array(
 				Type.Object({
 					expert: Type.String({
-						description: "Expert name: ext-expert, theme-expert, skill-expert, config-expert, tui-expert, prompt-expert, or agent-expert",
+						description: "Uzman adı: ext-expert, theme-expert, skill-expert, config-expert, tui-expert, prompt-expert veya agent-expert",
 					}),
 					question: Type.String({
-						description: "Specific question about what you need to build. Include context about the target component.",
+						description: "İnşa edilecek konuya dair net soru. Hedef bileşen bağlamını ekleyin.",
 					}),
 				}),
-				{ description: "Array of expert queries to run in parallel" },
+				{ description: "Paralel çalıştırılacak uzman sorguları dizisi" },
 			),
 		}),
 
@@ -415,7 +429,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 
 			if (!queries || queries.length === 0) {
 				return {
-					content: [{ type: "text", text: "No queries provided." }],
+					content: [{ type: "text", text: "Sorgu verilmedi." }],
 					details: { results: [], status: "error" },
 				};
 			}
@@ -423,7 +437,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 			const names = queries.map(q => displayName(q.expert)).join(", ");
 			if (onUpdate) {
 				onUpdate({
-					content: [{ type: "text", text: `Querying ${queries.length} experts in parallel: ${names}` }],
+					content: [{ type: "text", text: `${queries.length} uzman paralel sorgulanıyor: ${names}` }],
 					details: { queries, status: "researching", results: [] },
 				});
 			}
@@ -434,7 +448,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 				queries.map(async ({ expert, question }) => {
 					const result = await queryExpert(expert, question, ctx);
 					const truncated = result.output.length > 12000
-						? result.output.slice(0, 12000) + "\n\n... [truncated — ask follow-up for more]"
+						? result.output.slice(0, 12000) + "\n\n... [kısaltıldı — devamı için takip sorusu sorun]"
 						: result.output;
 					const status = result.exitCode === 0 ? "done" : "error";
 					return {
@@ -458,7 +472,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 						status: "error" as const,
 						elapsed: 0,
 						exitCode: 1,
-						output: `Error: ${(s.reason as any)?.message || s.reason}`,
+						output: `Hata: ${(s.reason as any)?.message || s.reason}`,
 						fullOutput: "",
 					},
 			);
@@ -483,7 +497,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 			const names = queries.map((q: any) => displayName(q.expert || "?")).join(", ");
 			return new Text(
 				theme.fg("toolTitle", theme.bold("query_experts ")) +
-				theme.fg("accent", `${queries.length} parallel`) +
+				theme.fg("accent", `${queries.length} paralel`) +
 				theme.fg("dim", " — ") +
 				theme.fg("muted", names),
 				0, 0,
@@ -500,8 +514,8 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 			if (options.isPartial || details.status === "researching") {
 				const count = details.queries?.length || "?";
 				return new Text(
-					theme.fg("accent", `◉ ${count} experts`) +
-					theme.fg("dim", " researching in parallel..."),
+					theme.fg("accent", `◉ ${count} uzman`) +
+					theme.fg("dim", " paralel araştırılıyor..."),
 					0, 0,
 				);
 			}
@@ -519,7 +533,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 			if (options.expanded && details.results) {
 				const expanded = (details.results as any[]).map((r: any) => {
 					const output = r.fullOutput
-						? (r.fullOutput.length > 4000 ? r.fullOutput.slice(0, 4000) + "\n... [truncated]" : r.fullOutput)
+						? (r.fullOutput.length > 4000 ? r.fullOutput.slice(0, 4000) + "\n... [kısaltıldı]" : r.fullOutput)
 						: r.output || "";
 					return theme.fg("accent", `── ${displayName(r.expert)} ──`) + "\n" + theme.fg("muted", output);
 				});
@@ -533,27 +547,27 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 	// ── Commands ─────────────────────────────────
 
 	pi.registerCommand("experts", {
-		description: "List available Pi Pi experts and their status",
+		description: "Kullanılabilir Pi Pi uzmanlarını ve durumlarını listele",
 		handler: async (_args, _ctx) => {
 			widgetCtx = _ctx;
 			const lines = Array.from(experts.values())
-				.map(s => `${displayName(s.def.name)} (${s.status}, queries: ${s.queryCount}): ${s.def.description}`)
+				.map(s => `${displayName(s.def.name)} (${expertStatusText(s.status)}, sorgu: ${s.queryCount}): ${s.def.description}`)
 				.join("\n");
-			_ctx.ui.notify(lines || "No experts loaded", "info");
+			_ctx.ui.notify(lines || "Yüklü uzman yok", "info");
 		},
 	});
 
 	pi.registerCommand("experts-grid", {
-		description: "Set expert grid columns: /experts-grid <1-5>",
+		description: "Uzman grid sütun sayısı: /experts-grid <1-5>",
 		handler: async (args, _ctx) => {
 			widgetCtx = _ctx;
 			const n = parseInt(args?.trim() || "", 10);
 			if (n >= 1 && n <= 5) {
 				gridCols = n;
-				_ctx.ui.notify(`Grid set to ${gridCols} columns`, "info");
+				_ctx.ui.notify(`Grid ${gridCols} sütun olarak ayarlandı`, "info");
 				updateWidget();
 			} else {
-				_ctx.ui.notify("Usage: /experts-grid <1-5>", "error");
+				_ctx.ui.notify("Kullanım: /experts-grid <1-5>", "error");
 			}
 		},
 	});
@@ -562,7 +576,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		const expertCatalog = Array.from(experts.values())
-			.map(s => `### ${displayName(s.def.name)}\n**Query as:** \`${s.def.name}\`\n${s.def.description}`)
+			.map(s => `### ${displayName(s.def.name)}\n**Sorgu adı:** \`${s.def.name}\`\n${s.def.description}`)
 			.join("\n\n");
 
 		const expertNames = Array.from(experts.values()).map(s => displayName(s.def.name)).join(", ");
@@ -580,7 +594,7 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 				.replace("{{EXPERT_NAMES}}", expertNames)
 				.replace("{{EXPERT_CATALOG}}", expertCatalog);
 		} catch (err) {
-			systemPrompt = "Error: Could not load pi-orchestrator.md. Make sure it exists in .pi/agents/pi-pi/.";
+			systemPrompt = "Hata: pi-orchestrator.md yüklenemedi. .pi/agents/pi-pi/ altında bulunduğunu doğrulayın.";
 		}
 
 		return { systemPrompt };
@@ -599,12 +613,12 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 		updateWidget();
 
 		const expertNames = Array.from(experts.values()).map(s => displayName(s.def.name)).join(", ");
-		_ctx.ui.setStatus("pi-pi", `Pi Pi (${experts.size} experts)`);
+		_ctx.ui.setStatus("pi-pi", `Pi Pi (${experts.size} uzman)`);
 		_ctx.ui.notify(
-			`Pi Pi loaded — ${experts.size} experts: ${expertNames}\n\n` +
-			`/experts          List experts and status\n` +
-			`/experts-grid N   Set grid columns (1-5)\n\n` +
-			`Ask me to build any Pi agent component!`,
+			`Pi Pi yüklendi — ${experts.size} uzman: ${expertNames}\n\n` +
+			`/experts          Uzmanları ve durumlarını listele\n` +
+			`/experts-grid N   Grid sütun sayısını ayarla (1-5)\n\n` +
+			`Herhangi bir Pi agent bileşenini inşa etmemi isteyebilirsiniz.`,
 			"info",
 		);
 
@@ -631,9 +645,9 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 					theme.fg("muted", " · ") +
 					theme.fg("accent", "Pi Pi");
 				const mid = active > 0
-					? theme.fg("accent", ` ◉ ${active} researching`)
+					? theme.fg("accent", ` ◉ ${active} araştırıyor`)
 					: done > 0
-					? theme.fg("success", ` ✓ ${done} done`)
+					? theme.fg("success", ` ✓ ${done} tamam`)
 					: "";
 				const right = theme.fg("dim", `[${bar}] ${pctLabel} `);
 				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(mid) - visibleWidth(right)));

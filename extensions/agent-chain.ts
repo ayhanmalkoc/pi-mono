@@ -56,6 +56,20 @@ interface StepState {
 	lastWork: string;
 }
 
+function stepStatusText(status: StepState["status"]): string {
+	switch (status) {
+		case "pending":
+			return "bekliyor";
+		case "running":
+			return "çalışıyor";
+		case "done":
+			return "tamam";
+		case "error":
+			return "hata";
+	}
+	return "bilinmiyor";
+}
+
 // ── Display Name Helper ──────────────────────────
 
 function displayName(name: string): string {
@@ -258,7 +272,7 @@ export default function (pi: ExtensionAPI) {
 		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
 		const nameVisible = Math.min(name.length, w);
 
-		const statusStr = `${statusIcon} ${state.status}`;
+		const statusStr = `${statusIcon} ${stepStatusText(state.status)}`;
 		const timeStr = state.status !== "pending" ? ` ${Math.round(state.elapsed / 1000)}s` : "";
 		const statusLine = theme.fg(statusColor, statusStr + timeStr);
 		const statusVisible = statusStr.length + timeStr.length;
@@ -291,7 +305,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				render(width: number): string[] {
 					if (!activeChain || stepStates.length === 0) {
-						text.setText(theme.fg("dim", "No chain active. Use /chain to select one."));
+						text.setText(theme.fg("dim", "Aktif zincir yok. Seçmek için /chain kullanın."));
 						return text.render(width);
 					}
 
@@ -436,7 +450,7 @@ export default function (pi: ExtensionAPI) {
 			proc.on("error", (err) => {
 				clearInterval(timer);
 				resolve({
-					output: `Error spawning agent: ${err.message}`,
+					output: `Ajan başlatılırken hata: ${err.message}`,
 					exitCode: 1,
 					elapsed: Date.now() - startTime,
 				});
@@ -451,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 	): Promise<{ output: string; success: boolean; elapsed: number }> {
 		if (!activeChain) {
-			return { output: "No chain active", success: false, elapsed: 0 };
+			return { output: "Aktif zincir yok", success: false, elapsed: 0 };
 		}
 
 		const chainStart = Date.now();
@@ -480,10 +494,10 @@ export default function (pi: ExtensionAPI) {
 			const agentDef = allAgents.get(step.agent.toLowerCase());
 			if (!agentDef) {
 				stepStates[i].status = "error";
-				stepStates[i].lastWork = `Agent "${step.agent}" not found`;
+				stepStates[i].lastWork = `Ajan "${step.agent}" bulunamadı`;
 				updateWidget();
 				return {
-					output: `Error at step ${i + 1}: Agent "${step.agent}" not found. Available: ${Array.from(allAgents.keys()).join(", ")}`,
+					output: `Adım ${i + 1} hatası: Ajan "${step.agent}" bulunamadı. Kullanılabilir: ${Array.from(allAgents.keys()).join(", ")}`,
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
@@ -495,7 +509,7 @@ export default function (pi: ExtensionAPI) {
 				stepStates[i].status = "error";
 				updateWidget();
 				return {
-					output: `Error at step ${i + 1} (${step.agent}): ${result.output}`,
+					output: `Adım ${i + 1} hatası (${step.agent}): ${result.output}`,
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
@@ -514,10 +528,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "run_chain",
-		label: "Run Chain",
-		description: "Execute the active agent chain pipeline. Each step runs sequentially — output from one step feeds into the next. Agents maintain session context across runs.",
+		label: "Zinciri Çalıştır",
+		description: "Aktif ajan zinciri pipeline'ını çalıştırır. Her adım sırayla çalışır; bir adımın çıktısı bir sonrakine aktarılır. Ajanlar çalıştırmalar arasında oturum bağlamını korur.",
 		parameters: Type.Object({
-			task: Type.String({ description: "The task/prompt for the chain to process" }),
+			task: Type.String({ description: "Zincirin işleyeceği görev/prompt" }),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
@@ -525,7 +539,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (onUpdate) {
 				onUpdate({
-					content: [{ type: "text", text: `Starting chain: ${activeChain?.name}...` }],
+					content: [{ type: "text", text: `Zincir başlatılıyor: ${activeChain?.name}...` }],
 					details: { chain: activeChain?.name, task, status: "running" },
 				});
 			}
@@ -533,11 +547,12 @@ export default function (pi: ExtensionAPI) {
 			const result = await runChain(task, ctx);
 
 			const truncated = result.output.length > 8000
-				? result.output.slice(0, 8000) + "\n\n... [truncated]"
+				? result.output.slice(0, 8000) + "\n\n... [kısaltıldı]"
 				: result.output;
 
 			const status = result.success ? "done" : "error";
-			const summary = `[chain:${activeChain?.name}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
+			const statusLabel = result.success ? "tamam" : "hata";
+			const summary = `[zincir:${activeChain?.name}] ${statusLabel} (${Math.round(result.elapsed / 1000)}sn)`;
 
 			return {
 				content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
@@ -573,7 +588,7 @@ export default function (pi: ExtensionAPI) {
 			if (options.isPartial || details.status === "running") {
 				return new Text(
 					theme.fg("accent", `● ${details.chain || "chain"}`) +
-					theme.fg("dim", " running..."),
+					theme.fg("dim", " çalışıyor..."),
 					0, 0,
 				);
 			}
@@ -586,7 +601,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (options.expanded && details.fullOutput) {
 				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
+					? details.fullOutput.slice(0, 4000) + "\n... [kısaltıldı]"
 					: details.fullOutput;
 				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
 			}
@@ -598,11 +613,11 @@ export default function (pi: ExtensionAPI) {
 	// ── Commands ─────────────────────────────────
 
 	pi.registerCommand("chain", {
-		description: "Switch active chain",
+		description: "Aktif zinciri değiştir",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			if (chains.length === 0) {
-				ctx.ui.notify("No chains defined in .pi/agents/agent-chain.yaml", "warning");
+				ctx.ui.notify(".pi/agents/agent-chain.yaml içinde zincir tanımı yok", "warning");
 				return;
 			}
 
@@ -612,26 +627,26 @@ export default function (pi: ExtensionAPI) {
 				return `${c.name}${desc} (${steps})`;
 			});
 
-			const choice = await ctx.ui.select("Select Chain", options);
+			const choice = await ctx.ui.select("Zincir Seç", options);
 			if (choice === undefined) return;
 
 			const idx = options.indexOf(choice);
 			activateChain(chains[idx]);
 			const flow = chains[idx].steps.map(s => displayName(s.agent)).join(" → ");
-			ctx.ui.setStatus("agent-chain", `Chain: ${chains[idx].name} (${chains[idx].steps.length} steps)`);
+			ctx.ui.setStatus("agent-chain", `Zincir: ${chains[idx].name} (${chains[idx].steps.length} adım)`);
 			ctx.ui.notify(
-				`Chain: ${chains[idx].name}\n${chains[idx].description}\n${flow}`,
+				`Zincir: ${chains[idx].name}\n${chains[idx].description}\n${flow}`,
 				"info",
 			);
 		},
 	});
 
 	pi.registerCommand("chain-list", {
-		description: "List all available chains",
+		description: "Kullanılabilir zincirleri listele",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			if (chains.length === 0) {
-				ctx.ui.notify("No chains defined in .pi/agents/agent-chain.yaml", "warning");
+				ctx.ui.notify(".pi/agents/agent-chain.yaml içinde zincir tanımı yok", "warning");
 				return;
 			}
 
@@ -686,45 +701,45 @@ export default function (pi: ExtensionAPI) {
 			})
 			.map(s => {
 				const agentDef = allAgents.get(s.agent.toLowerCase());
-				if (!agentDef) return `### ${displayName(s.agent)}\nAgent not found.`;
-				return `### ${displayName(agentDef.name)}\n${agentDef.description}\n**Tools:** ${agentDef.tools}\n**Role:** ${agentDef.systemPrompt}`;
+				if (!agentDef) return `### ${displayName(s.agent)}\nAjan bulunamadı.`;
+				return `### ${displayName(agentDef.name)}\n${agentDef.description}\n**Araçlar:** ${agentDef.tools}\n**Rol:** ${agentDef.systemPrompt}`;
 			})
 			.join("\n\n");
 
 		return {
-			systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}
-You have full access to your own tools AND the run_chain tool to delegate to your team.
+			systemPrompt: `Kullanımında "${activeChain.name}" adlı sıralı bir pipeline bulunan bir ajansın.${desc}
+Kendi araçlarına tam erişimin var VE takımına görev devretmek için run_chain aracını kullanabilirsin.
 
-## Active Chain: ${activeChain.name}
-Flow: ${flow}
+## Aktif Zincir: ${activeChain.name}
+Akış: ${flow}
 
 ${steps}
 
-## Agent Details
+## Ajan Ayrıntıları
 
 ${agentCatalog}
 
-## When to Use run_chain
-- Significant work: new features, refactors, multi-file changes, anything non-trivial
-- Tasks that benefit from the full pipeline: planning, building, reviewing
-- When you want structured, multi-agent collaboration on a problem
+## run_chain Ne Zaman Kullanılır
+- Yeni özellik, refactor, çok dosyalı değişiklik gibi anlamlı işler
+- Planlama, geliştirme, gözden geçirme adımlarının tamamından fayda görecek görevler
+- Sorunda yapısal, çok ajanlı bir işbirliği gerektiğinde
 
-## When to Work Directly
-- Simple one-off commands: reading a file, checking status, listing contents
-- Quick lookups, small edits, answering questions about the codebase
-- Anything you can handle in a single step without needing the pipeline
+## Ne Zaman Doğrudan Çalışılır
+- Tek adımlık basit işler: dosya okuma, durum kontrolü, içerik listeleme
+- Hızlı doğrulamalar, küçük düzenlemeler, kod tabanı sorularını yanıtlama
+- Pipeline gerektirmeden tek adımda çözülebilecek görevler
 
-## How run_chain Works
-- Pass a clear task description to run_chain
-- Each step's output feeds into the next step as $INPUT
-- Agents maintain session context — they remember previous work within this session
-- You can run the chain multiple times with different tasks if needed
-- After the chain completes, review the result and summarize for the user
+## run_chain Nasıl Çalışır
+- run_chain aracına net bir görev tanımı ver
+- Her adımın çıktısı, bir sonraki adımın $INPUT girdisi olur
+- Ajanlar oturum bağlamını korur; bu oturumdaki önceki işi hatırlar
+- Gerekirse aynı zinciri farklı görevlerle birden çok kez çalıştırabilirsin
+- Zincir bittikten sonra sonucu gözden geçir ve kullanıcıya özetle
 
-## Guidelines
-- Use your judgment — if it's quick, just do it; if it's real work, run the chain
-- Keep chain tasks focused and clearly described
-- You can mix direct work and chain runs in the same conversation`,
+## İlkeler
+- Yargını kullan: iş hızlıysa doğrudan yap, kapsamlıysa zinciri çalıştır
+- Zincir görevlerini odaklı ve açık tanımla
+- Aynı konuşmada doğrudan çalışma ile zincir çalıştırmayı birlikte kullanabilirsin`,
 		};
 	});
 
@@ -758,7 +773,7 @@ ${agentCatalog}
 		loadChains(_ctx.cwd);
 
 		if (chains.length === 0) {
-			_ctx.ui.notify("No chains found in .pi/agents/agent-chain.yaml", "warning");
+			_ctx.ui.notify(".pi/agents/agent-chain.yaml içinde zincir bulunamadı", "warning");
 			return;
 		}
 
@@ -768,11 +783,11 @@ ${agentCatalog}
 		// run_chain is registered as a tool — available alongside all default tools
 
 		const flow = activeChain!.steps.map(s => displayName(s.agent)).join(" → ");
-		_ctx.ui.setStatus("agent-chain", `Chain: ${activeChain!.name} (${activeChain!.steps.length} steps)`);
+		_ctx.ui.setStatus("agent-chain", `Zincir: ${activeChain!.name} (${activeChain!.steps.length} adım)`);
 		_ctx.ui.notify(
-			`Chain: ${activeChain!.name}\n${activeChain!.description}\n${flow}\n\n` +
-			`/chain             Switch chain\n` +
-			`/chain-list        List all chains`,
+			`Zincir: ${activeChain!.name}\n${activeChain!.description}\n${flow}\n\n` +
+			`/chain             Zincir değiştir\n` +
+			`/chain-list        Tüm zincirleri listele`,
 			"info",
 		);
 
@@ -794,7 +809,7 @@ ${agentCatalog}
 
 				const chainLabel = activeChain
 					? theme.fg("accent", activeChain.name)
-					: theme.fg("dim", "no chain");
+					: theme.fg("dim", "zincir yok");
 
 				const left = theme.fg("dim", ` ${model}`) +
 					theme.fg("muted", " · ") +
